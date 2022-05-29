@@ -164,7 +164,10 @@ void() item_health =
 		setmodel(self, "maps/b_bh100.bsp");
 		self.noise = "items/r_item2.wav";
 		self.healamount = 100;
-		self.healtype = 2;
+		if (horde_ent)
+			self.healtype = 3;
+		else
+			self.healtype = 2;
 	}
 	else
 	{
@@ -191,7 +194,7 @@ void() health_touch =
 	self.enemy = other;	// Store this player for coop
 #endif
 
-	if (self.healtype == 2) // Megahealth?  Ignore max_health...
+	if (self.healtype >= 2) // Megahealth?  Ignore max_health...
 	{
 		if (other.health >= 250)
 			return;
@@ -1094,13 +1097,19 @@ void() powerup_touch;
 
 void() powerup_touch =
 {
+	
+	
 	if (other.classname != "player")
 		return;
 	if (other.health <= 0)
 		return;
 
 	sprint(other, "$qc_got_item", self.netname);		
-
+	
+	float addtime = 30;
+	if (horde_ent)
+		addtime = 5;
+	
 	if (deathmatch)
 	{
 		self.mdl = self.model;
@@ -1129,6 +1138,8 @@ void() powerup_touch =
 	activator = other;
 	SUB_UseTargets();				// fire all targets / killtargets
 	
+	float curtime = 0;
+	float powertime = 0;
 	if (self.classname == "item_artifact_envirosuit")
 	// do the apropriate action
 	{
@@ -1144,11 +1155,16 @@ void() powerup_touch =
 	if (self.classname == "item_artifact_invulnerability")
 	{
 		other.invincible_time = 1;
+		powertime = other.invincible_finished;
+		curtime = powertime - time;
+		
 		// Yoder Sept24 2021 Horde Merge
-		if (horde_ent)
-			other.invincible_finished = time + 5;
-		else	
-			other.invincible_finished = time + 30;
+		if (curtime < 1)
+			curtime = time + addtime;
+		else
+			curtime = powertime + addtime;
+		
+		other.invincible_finished = curtime;
 	}
 	
 	if (self.classname == "item_artifact_invisibility")
@@ -1160,11 +1176,16 @@ void() powerup_touch =
 	if (self.classname == "item_artifact_super_damage")
 	{
 		other.super_time = 1;
+		powertime = other.super_damage_finished;
+		curtime = powertime - time;
+		
 		// Yoder Sept24 2021 Horde Merge
-		if (horde_ent)
-			other.super_damage_finished = time + 5;
+		if (curtime < 1)
+			curtime = time + addtime;
 		else
-			other.super_damage_finished = time + 30;
+			curtime = powertime + addtime;
+		
+		other.super_damage_finished = curtime;
 	}	
 
 };

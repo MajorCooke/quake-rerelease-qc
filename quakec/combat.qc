@@ -144,10 +144,13 @@ void(entity targ, entity inflictor, entity attacker, float damage) T_Damage=
 	local	entity	oldself;
 	local	float	save;
 	local	float	take;
+	local	float	quadmul;
+	local	float	invul;
 
 	if (!targ.takedamage)
 		return;
 
+	quadmul = 1;
 
 	// mal: in Coop, don't let bots hurt human teammates - that would be REALLY annoying...
 	if ( coop && targ != attacker && targ.classname == "player" && attacker.classname == "player" ) {
@@ -165,19 +168,54 @@ void(entity targ, entity inflictor, entity attacker, float damage) T_Damage=
 
 	// check for quad damage powerup on the attacker
 	if (attacker.super_damage_finished > time)
-		damage = damage * 4;
+		quadmul = 4;
+		
+	// figure momentum add
+	if ( (inflictor != world) && (targ.movetype == MOVETYPE_WALK) )
+	{
+		dir = targ.origin - (inflictor.absmin + inflictor.absmax) * 0.5;
+		dir = normalize(dir);
+		targ.velocity = targ.velocity + dir*damage*8*quadmul;
+	}
+	
+	// [MC] Disable self quad damage except for deathmatch
+	if (!deathmatch && targ != attacker)
+	{
+		damage = damage * quadmul;
+	}
+	// [MC] Moved team damage, godmode and invulnerability check to before armor. I prefer it DOOM style.
+	// check for godmode or invincibility
+	if (targ.flags & FL_GODMODE)
+		invul = 1;
+	
+	if (invul < 1 && targ.invincible_finished >= time)
+	{
+		if (self.invincible_sound < time)
+		{
+			sound (targ, CHAN_ITEM, "items/protect3.wav", 1, ATTN_NORM);
+			self.invincible_sound = time + 2;
+		}
+	
+		invul = 1;
+	}
+
+	// team play damage avoidance
+	if (invul < 1 && (teamplay == 1 && targ != attacker) && (targ.team > 0) && (targ.team == attacker.team) )
+		invul = 1;
 
 	// save damage based on the target's armor level
 	save = ceil(targ.armortype*damage);
-
-	if (save >= targ.armorvalue)
+	if (invul < 1)
 	{
-		save = targ.armorvalue;
-		targ.armortype = 0;	// lost all armor
-		targ.items = targ.items - (targ.items & (IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3));
+		if (save >= targ.armorvalue)
+		{
+			save = targ.armorvalue;
+			targ.armortype = 0;	// lost all armor
+			targ.items = targ.items - (targ.items & (IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3));
+		}
+		
+		targ.armorvalue = targ.armorvalue - save;
 	}
-	
-	targ.armorvalue = targ.armorvalue - save;
 	take = ceil(damage-save);
 
 	// add to the damage total for clients, which will be sent as a single
@@ -189,32 +227,9 @@ void(entity targ, entity inflictor, entity attacker, float damage) T_Damage=
 		targ.dmg_save = targ.dmg_save + save;
 		targ.dmg_inflictor = inflictor;
 	}
-
-	// figure momentum add
-	if ( (inflictor != world) && (targ.movetype == MOVETYPE_WALK) )
-	{
-		dir = targ.origin - (inflictor.absmin + inflictor.absmax) * 0.5;
-		dir = normalize(dir);
-		targ.velocity = targ.velocity + dir*damage*8;
-	}
-
-	// check for godmode or invincibility
-	if (targ.flags & FL_GODMODE)
-		return;
 	
-	if (targ.invincible_finished >= time)
-	{
-		if (self.invincible_sound < time)
-		{
-			sound (targ, CHAN_ITEM, "items/protect3.wav", 1, ATTN_NORM);
-			self.invincible_sound = time + 2;
-		}
-	
-		return;
-	}
-
-	// team play damage avoidance
-	if ( (teamplay == 1 && targ != attacker) && (targ.team > 0)&&(targ.team == attacker.team) )
+	// No damage taken.
+	if (invul > 0)
 		return;
 		
 	// [NDS] haleyjd: if player and actual health damage is inflicted, flag it here

@@ -142,6 +142,8 @@ void(entity targ, entity inflictor, entity attacker, float damage) T_Damage=
 	local	entity	oldself;
 	local	float	save;
 	local	float	take;
+	local	float	quadmul;
+	local	float	invul;
 
 	if (!targ.takedamage)
 		return;
@@ -153,53 +155,79 @@ void(entity targ, entity inflictor, entity attacker, float damage) T_Damage=
 		}
 	}	
 
-
    if (discharged && targ.wetsuit_finished )
       return;
-//MED moved damage_attacker down a bit
-/*
-   dprint("netname = ");
-   dprint(attacker.netname);
-   dprint(" classname = ");
-   dprint(attacker.classname);
-   dprint(" classname = ");
-   dprint(inflictor.classname);
-   dprint("\n");
-*/
-// check for quad damage powerup on the attacker
-	if (attacker.super_damage_finished > time)
-		damage = damage * 4;
+  
+	quadmul = 1;
+	invul = 0;
 
-
-//MED
 //check for empathy shields
-   if ((targ.items2 & HIP_IT_EMPATHY_SHIELDS) && !(inflictor.items2 & HIP_IT_EMPATHY_SHIELDS) && (targ != attacker))
-      {
-      empathyused = 1;
-      damage = damage/2;
-      T_Damage (attacker,targ,targ,damage);
-      empathyused = 0;
-      }
-//MED
+	if ((targ.items2 & HIP_IT_EMPATHY_SHIELDS) && !(inflictor.items2 & HIP_IT_EMPATHY_SHIELDS) && (targ != attacker))
+	{
+		empathyused = 1;
+		damage = damage/2;
+		T_Damage (attacker,targ,targ,damage);
+		empathyused = 0;
+	}
+	
 // used by buttons and triggers to set activator for target firing
 	damage_attacker = attacker;
 
-//MED
 // used to keep track of what hit us
-   damage_inflictor = inflictor;
+	damage_inflictor = inflictor;
 
-// save damage based on the target's armor level
-
-	save = ceil(targ.armortype*damage);
-	if (save >= targ.armorvalue)
+// check for quad damage powerup on the attacker
+	if (attacker.super_damage_finished > time)
+		quadmul = 4;
+		
+	// figure momentum add
+	if ( (inflictor != world) && (targ.movetype == MOVETYPE_WALK) )
 	{
-		save = targ.armorvalue;
-		targ.armortype = 0;	// lost all armor
-      targ.items = targ.items - (targ.items & (IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3));
-   }
+		dir = targ.origin - (inflictor.absmin + inflictor.absmax) * 0.5;
+		dir = normalize(dir);
+		targ.velocity = targ.velocity + dir*damage*8*quadmul;
+	}
+	
+	// [MC] Disable self quad damage except for deathmatch
+	if (!deathmatch && targ != attacker)
+		damage = damage * quadmul;
 
-	targ.armorvalue = targ.armorvalue - save;
+
+	// [MC] Moved team damage, godmode and invulnerability check to before armor. I prefer it DOOM style.
+	// check for godmode or invincibility
+	if (targ.flags & FL_GODMODE)
+		invul = 1;
+	
+	if (invul < 1 && targ.invincible_finished >= time)
+	{
+		if (self.invincible_sound < time)
+		{
+			sound (targ, CHAN_ITEM, "items/protect3.wav", 1, ATTN_NORM);
+			self.invincible_sound = time + 2;
+		}
+	
+		invul = 1;
+	}
+
+	// team play damage avoidance
+	if (invul < 1 && (teamplay == 1 && targ != attacker) && (targ.team > 0) && (targ.team == attacker.team) )
+		invul = 1;
+
+	// save damage based on the target's armor level
+	save = ceil(targ.armortype*damage);
+	if (invul < 1)
+	{
+		if (save >= targ.armorvalue)
+		{
+			save = targ.armorvalue;
+			targ.armortype = 0;	// lost all armor
+			targ.items = targ.items - (targ.items & (IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3));
+		}
+		
+		targ.armorvalue = targ.armorvalue - save;
+	}
 	take = ceil(damage-save);
+
 
 // add to the damage total for clients, which will be sent as a single
 // message at the end of the frame
@@ -210,39 +238,18 @@ void(entity targ, entity inflictor, entity attacker, float damage) T_Damage=
 		targ.dmg_save = targ.dmg_save + save;
 		targ.dmg_inflictor = inflictor;
 	}
-
-// figure momentum add
-	if ( (inflictor != world) && (targ.movetype == MOVETYPE_WALK) )
+	
+	if (targ.items2 & HIP_IT_EMPATHY_SHIELDS)
 	{
-		dir = targ.origin - (inflictor.absmin + inflictor.absmax) * 0.5;
-		dir = normalize(dir);
-		targ.velocity = targ.velocity + dir*damage*8;
-	}
-
-// check for godmode or invincibility
-	if (targ.flags & FL_GODMODE)
-		return;
-	if (targ.invincible_finished >= time)
-	{
-		if (self.invincible_sound < time)
+		if (self.empathy_sound < time)
 		{
-			sound (targ, CHAN_ITEM, "items/protect3.wav", 1, ATTN_NORM);
-			self.invincible_sound = time + 2;
-		}
-		return;
-	}
-//MED
-   if (targ.items2 & HIP_IT_EMPATHY_SHIELDS)
-	{
-      if (self.empathy_sound < time)
-		{
-         sound (targ, CHAN_ITEM, "hipitems/empathy2.wav", 1, ATTN_NORM);
-         self.empathy_sound = time + 0.5;
+			sound (targ, CHAN_ITEM, "hipitems/empathy2.wav", 1, ATTN_NORM);
+			self.empathy_sound = time + 0.5;
 		}
 	}
 
 // team play damage avoidance
-	if ( (teamplay == 1 && targ != attacker) && (targ.team > 0)&&(targ.team == attacker.team) )
+	if (invul > 0 || (teamplay == 1 && targ != attacker) && (targ.team > 0) && (targ.team == attacker.team) )
 		return;
 
 // do the damage
@@ -265,7 +272,7 @@ void(entity targ, entity inflictor, entity attacker, float damage) T_Damage=
       if (self != attacker && attacker != self.enemy && (self.charmer!=attacker))
 		{
 			if ( (self.classname != attacker.classname)
-         || (self.classname == "monster_army" ) || (self.classname == "monster_armagon" ) )
+			|| (self.classname == "monster_army" ) || (self.classname == "monster_armagon" ) )
 			{
 				if (self.enemy.classname == "player")
 					self.oldenemy = self.enemy;

@@ -196,6 +196,8 @@ void(entity targ, entity inflictor, entity attacker, float damage) T_Damage=
 	local	entity	oldself;
 	local	float	save;
 	local	float	take;
+	local	float	quadmul;
+	local	float	invul;
 
 	if (!targ.takedamage)
 		return;
@@ -204,24 +206,64 @@ void(entity targ, entity inflictor, entity attacker, float damage) T_Damage=
 	if (targ.is_frozen)
 		return;
 
+	quadmul = 1;
+	invul = 0;
+
 // used by buttons and triggers to set activator for target firing
 	damage_attacker = attacker;
 
 // check for quad damage powerup on the attacker
 	if (attacker.super_damage_finished > time)
-		damage = damage * 4;
-
-// save damage based on the target's armor level
-
-	save = ceil(targ.armortype*damage);
-	if (save >= targ.armorvalue)
+		quadmul = 4;
+		
+// figure momentum add
+	// [MC] Allow for quad damage flinging
+	if ( (inflictor != world) && (targ.movetype == MOVETYPE_WALK) )
 	{
-		save = targ.armorvalue;
-		targ.armortype = 0;	// lost all armor
-		targ.items = targ.items - (targ.items & (IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3));
+		dir = targ.origin - (inflictor.absmin + inflictor.absmax) * 0.5;
+		dir = normalize(dir);
+		targ.velocity = targ.velocity + dir*damage*8*quadmul;
 	}
 	
-	targ.armorvalue = targ.armorvalue - save;
+	// [MC] Disable self quad damage except for deathmatch
+	if (!deathmatch && targ != attacker)
+	{
+		damage = damage * quadmul;
+	}
+	// [MC] Moved team damage, godmode and invulnerability check to before armor. I prefer it DOOM style.
+	// check for godmode or invincibility
+	if (targ.flags & FL_GODMODE)
+		invul = 1;
+	
+	if (invul < 1 && targ.invincible_finished >= time)
+	{
+		if (self.invincible_sound < time)
+		{
+			sound (targ, CHAN_ITEM, "items/protect3.wav", 1, ATTN_NORM);
+			self.invincible_sound = time + 2;
+		}
+	
+		invul = 1;
+	}
+
+	// team play damage avoidance
+	if (invul < 1 && (teamplay == 1 && targ != attacker) && (targ.team > 0) && (targ.team == attacker.team) )
+		invul = 1;
+
+// save damage based on the target's armor level
+// [MC] Don't remove while invulnerable
+	save = ceil(targ.armortype*damage);
+	if (invul < 1)
+	{
+		if (save >= targ.armorvalue)
+		{
+			save = targ.armorvalue;
+			targ.armortype = 0;	// lost all armor
+			targ.items = targ.items - (targ.items & (IT_ARMOR1 | IT_ARMOR2 | IT_ARMOR3));
+		}
+		
+		targ.armorvalue = targ.armorvalue - save;
+	}
 	take = ceil(damage-save);
 
 // add to the damage total for clients, which will be sent as a single
@@ -233,30 +275,10 @@ void(entity targ, entity inflictor, entity attacker, float damage) T_Damage=
 		targ.dmg_inflictor = inflictor;
 	}
 
-// figure momentum add
-	if ( (inflictor != world) && (targ.movetype == MOVETYPE_WALK) )
+	if (invul > 0)
 	{
-		dir = targ.origin - (inflictor.absmin + inflictor.absmax) * 0.5;
-		dir = normalize(dir);
-		targ.velocity = targ.velocity + dir*damage*8;
-	}
-
-// check for godmode or invincibility
-	if (targ.flags & FL_GODMODE)
-		return;
-	if (targ.invincible_finished >= time)
-	{
-		if (self.invincible_sound < time)
-		{
-			sound (targ, CHAN_ITEM, "items/protect3.wav", 1, ATTN_NORM);
-			self.invincible_sound = time + 2;
-		}
 		return;
 	}
-
-// team play damage avoidance
-	if ( (teamplay == 1 && targ != attacker) && (targ.team > 0)&&(targ.team == attacker.team) )
-		return;
 		
 	// special case for killable chthon (yoder, december 16 2020)
 	if ((targ.classname == "monster_boss") && (targ.spawnflags & 2)) // is killable chthon

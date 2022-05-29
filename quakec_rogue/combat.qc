@@ -149,6 +149,8 @@ void(entity targ, entity inflictor, entity attacker, float damage) T_Damage=
 	local	entity	oldself;
 	local	float	save;
 	local	float	take;
+	local	float	quadmul;
+	local	float	invul;
 	
 	if (!targ.takedamage)
 		return;
@@ -158,8 +160,60 @@ void(entity targ, entity inflictor, entity attacker, float damage) T_Damage=
 		if ( attacker.flags & FL_ISBOT && !( targ.flags & FL_ISBOT ) ) {
 			return;
 		}
-	}		
+	}
+	
+	// used by buttons and triggers to set activator for target firing
+	damage_attacker = attacker;
+	
+	// check for quad damage powerup on the attacker
+	if (attacker.super_damage_finished > time)
+		quadmul = 4;
+		
+	// figure momentum add
+	if ( (inflictor != world) && (targ.movetype == MOVETYPE_WALK) )
+	{
+		dir = targ.origin - (inflictor.absmin + inflictor.absmax) * 0.5;
+		dir = normalize(dir);
+		targ.velocity = targ.velocity + dir*damage*8*quadmul;
+	}
+	
+	// [MC] Disable self quad damage except for deathmatch
+	if (!deathmatch && targ != attacker)
+		damage = damage * quadmul;
+	
+	// [MC] Moved team damage, godmode and invulnerability check to before armor. I prefer it DOOM style.
+	// check for godmode or invincibility
+	if (targ.flags & FL_GODMODE)
+		invul = 1;
+	
+	if (invul < 1 && targ.invincible_finished >= time)
+	{
+		if (self.invincible_sound < time)
+		{
+			sound (targ, CHAN_ITEM, "items/protect3.wav", 1, ATTN_NORM);
+			self.invincible_sound = time + 2;
+		}
+	
+		invul = 1;
+	}
 
+	// team play damage avoidance
+	if (invul < 1 && (teamplay == 1 && targ != attacker) && (targ.team > 0) && (targ.team == attacker.team) )
+		invul = 1;
+	
+	if (invul > 0)
+	{
+		save = ceil(targ.armortype*damage);
+		take = ceil(damage-save);
+		if (targ.flags & FL_CLIENT)
+		{
+			targ.dmg_take = targ.dmg_take + take;
+			targ.dmg_save = targ.dmg_save + save;
+			targ.dmg_inflictor = inflictor;
+		}
+		return;
+	}
+	
 	if (targ.classname == "trigger_explosion")
 	{
 		if ( IsExplosionDamage != 1)
@@ -174,13 +228,7 @@ void(entity targ, entity inflictor, entity attacker, float damage) T_Damage=
 		if (damage == 0)
 			return;
 	}
-
-// used by buttons and triggers to set activator for target firing
-	damage_attacker = attacker;
-
-// check for quad damage powerup on the attacker
-	if (attacker.super_damage_finished > time)
-		damage = damage * 4;
+	
 // rune power up (Black Magic)
 	if (deathmatch)
 		damage = RuneApplyBlack(damage, attacker);
@@ -193,7 +241,7 @@ void(entity targ, entity inflictor, entity attacker, float damage) T_Damage=
 	else
 		save = 0;
 //--ZOID
-
+	
 	if (save >= targ.armorvalue)
 	{
 		save = targ.armorvalue;
@@ -203,6 +251,7 @@ void(entity targ, entity inflictor, entity attacker, float damage) T_Damage=
 	}
 	
 	targ.armorvalue = targ.armorvalue - save;
+	
 	take = ceil(damage-save);
 
 // add to the damage total for clients, which will be sent as a single
@@ -213,27 +262,6 @@ void(entity targ, entity inflictor, entity attacker, float damage) T_Damage=
 		targ.dmg_take = targ.dmg_take + take;
 		targ.dmg_save = targ.dmg_save + save;
 		targ.dmg_inflictor = inflictor;
-	}
-
-// figure momentum add
-	if ( (inflictor != world) && (targ.movetype == MOVETYPE_WALK) )
-	{
-		dir = targ.origin - (inflictor.absmin + inflictor.absmax) * 0.5;
-		dir = normalize(dir);
-		targ.velocity = targ.velocity + dir*damage*8;
-	}
-	
-// check for godmode or invincibility
-	if (targ.flags & FL_GODMODE)
-		return;
-	if (targ.invincible_finished >= time)
-	{
-		if (targ.invincible_sound < time)
-		{
-			sound (targ, CHAN_ITEM, "items/protect3.wav", 1, ATTN_NORM);
-			targ.invincible_sound = time + 2;
-		}
-		return;
 	}
 
 // team play damage avoidance
